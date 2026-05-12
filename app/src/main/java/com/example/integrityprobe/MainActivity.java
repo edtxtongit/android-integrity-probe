@@ -294,7 +294,7 @@ public class MainActivity extends Activity {
     private Result checkFido2Passkey() {
         String name = "FIDO2 / Passkey / 硬件安全密钥签名";
         boolean gms = hasPackage("com.google.android.gms");
-        boolean biometric = hasFeature(PackageManager.FEATURE_FINGERPRINT) || (Build.VERSION.SDK_INT >= 29 && hasFeature(PackageManager.FEATURE_BIOMETRIC_STRONG));
+        boolean biometric = hasFeature(PackageManager.FEATURE_FINGERPRINT) || hasFeature("android.hardware.biometrics.face") || hasFeature("android.hardware.biometrics.iris");
         boolean usbHost = hasFeature(PackageManager.FEATURE_USB_HOST);
         boolean nfc = NfcAdapter.getDefaultAdapter(this) != null;
         if (gms || biometric || usbHost || nfc) {
