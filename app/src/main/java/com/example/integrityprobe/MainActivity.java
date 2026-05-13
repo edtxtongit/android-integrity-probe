@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.cert.Certificate;
@@ -64,6 +65,10 @@ public class MainActivity extends Activity {
         run.setText("开始检测");
         root.addView(run);
 
+        Button viewCerts = new Button(this);
+        viewCerts.setText("查看证书链");
+        root.addView(viewCerts);
+
         output = new TextView(this);
         output.setTextSize(13);
         output.setTextIsSelectable(true);
@@ -76,6 +81,9 @@ public class MainActivity extends Activity {
 
         run.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { runProbe(); }
+        });
+        viewCerts.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showCertificateChains(); }
         });
         runProbe();
     }
@@ -110,6 +118,7 @@ public class MainActivity extends Activity {
         sb.append("- PARTIAL: 只能检测到硬件/系统能力或缺少服务端、厂商 SDK、权限、业务配置。\n");
         sb.append("- FAIL: 当前设备/系统/API 不支持，或本地操作失败。\n\n");
         sb.append("服务端必须做三件事：随机 nonce/challenge、验签、验证证书链/签名链。客户端本地显示结果仅供调试。\n");
+        sb.append("点击“查看证书链”可生成并显示 TEE/StrongBox attestation 证书链摘要和 PEM，便于复制到服务端/openssl 调试。\n");
 
         output.setText(sb.toString());
     }
@@ -320,6 +329,106 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             return fail(name, "mTLS keystore 准备失败: " + shortErr(t));
         }
+    }
+
+
+    private void showCertificateChains() {
+        StringBuilder sb = new StringBuilder();
+        addHeader(sb);
+        sb.append("证书链查看\n\n");
+        sb.append("说明：这里生成新的本地 demo attestation key，并用当前 App 进程内的 LOCAL_DEMO_CHALLENGE 作为 challenge。\n");
+        sb.append("生产环境请把 PEM 证书链、公钥签名和服务端 nonce 一起发到服务端，由服务端验证 Google/Android attestation 根链、challenge、签名和 RootOfTrust 字段。\n\n");
+
+        appendAttestationChain(sb, "TEE / KeyMint / Keymaster Attestation", "probe_view_tee_attest", false);
+        sb.append("\n");
+        appendAttestationChain(sb, "StrongBox Attestation", "probe_view_strongbox_attest", true);
+
+        output.setText(sb.toString());
+    }
+
+    private void appendAttestationChain(StringBuilder sb, String title, String alias, boolean strongBox) {
+        sb.append("==============================\n");
+        sb.append(title).append("\n");
+        sb.append("==============================\n");
+        sb.append("alias: ").append(alias).append("\n");
+        sb.append("challenge(base64): ").append(b64(DEMO_CHALLENGE)).append("\n");
+        if (Build.VERSION.SDK_INT < 24) {
+            sb.append("状态: FAIL - Key Attestation 需要 Android 7/API 24+。\n");
+            return;
+        }
+        if (strongBox) {
+            if (Build.VERSION.SDK_INT < 28) {
+                sb.append("状态: FAIL - StrongBox 需要 Android 9/API 28+。\n");
+                return;
+            }
+            if (!hasFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)) {
+                sb.append("状态: FAIL - 设备未声明 android.hardware.strongbox_keystore。\n");
+                return;
+            }
+        }
+        try {
+            deleteAlias(alias);
+            generateEcKey(alias, DEMO_CHALLENGE, strongBox);
+            Certificate[] chain = certChain(alias);
+            AttestationInfo info = inspectAttestation(chain);
+            sb.append("状态: OK\n");
+            sb.append("chainLength: ").append(chain.length).append("\n");
+            sb.append("attestationInfo: ").append(info.summary()).append("\n\n");
+            appendCertificateChainPemAndSummary(sb, chain);
+        } catch (Throwable t) {
+            sb.append("状态: FAIL - ").append(shortErr(t)).append("\n");
+        }
+    }
+
+    private void appendCertificateChainPemAndSummary(StringBuilder sb, Certificate[] chain) throws Exception {
+        for (int i = 0; i < chain.length; i++) {
+            X509Certificate cert = (X509Certificate) chain[i];
+            sb.append("----- Certificate ").append(i).append(" / ").append(chain.length - 1).append(" -----\n");
+            sb.append("Subject: ").append(cert.getSubjectX500Principal().getName()).append("\n");
+            sb.append("Issuer: ").append(cert.getIssuerX500Principal().getName()).append("\n");
+            sb.append("Serial(hex): ").append(cert.getSerialNumber().toString(16)).append("\n");
+            sb.append("NotBefore: ").append(cert.getNotBefore()).append("\n");
+            sb.append("NotAfter: ").append(cert.getNotAfter()).append("\n");
+            sb.append("SigAlg: ").append(cert.getSigAlgName()).append("\n");
+            sb.append("PublicKey: ").append(cert.getPublicKey().getAlgorithm()).append(" / ").append(cert.getPublicKey().getFormat()).append("\n");
+            sb.append("SHA256 Fingerprint: ").append(sha256Hex(cert.getEncoded())).append("\n");
+            sb.append("SelfSignedSubjectIssuer: ").append(cert.getSubjectX500Principal().equals(cert.getIssuerX500Principal())).append("\n");
+            if (i == 0) {
+                byte[] ext = cert.getExtensionValue(ANDROID_KEY_ATTESTATION_OID);
+                sb.append("AndroidKeyAttestationOID: ").append(ext != null ? ("present, extLen=" + ext.length) : "absent").append("\n");
+            }
+            sb.append("PEM:\n").append(pemCertificate(cert)).append("\n");
+        }
+    }
+
+    private String pemCertificate(X509Certificate cert) throws Exception {
+        String body = b64(cert.getEncoded());
+        return "-----BEGIN CERTIFICATE-----\n" + wrap64(body) + "\n-----END CERTIFICATE-----\n";
+    }
+
+    private String wrap64(String s) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < s.length(); i += 64) {
+            if (i > 0) out.append('\n');
+            out.append(s, i, Math.min(i + 64, s.length()));
+        }
+        return out.toString();
+    }
+
+    private String sha256Hex(byte[] data) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        return hex(md.digest(data));
+    }
+
+    private String hex(byte[] data) {
+        StringBuilder sb = new StringBuilder(data.length * 3);
+        for (int i = 0; i < data.length; i++) {
+            if (i > 0) sb.append(':');
+            int v = data[i] & 0xff;
+            if (v < 16) sb.append('0');
+            sb.append(Integer.toHexString(v));
+        }
+        return sb.toString();
     }
 
     private void generateEcKey(String alias, byte[] attestationChallenge, boolean strongBox) throws Exception {

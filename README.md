@@ -37,6 +37,20 @@ App 会列出以下 12 项的本机探测结果：
 - `PARTIAL`：只能检测到硬件/系统能力，或缺少服务端、厂商 SDK、权限、业务配置。
 - `FAIL`：当前设备/系统/API 不支持，或本地操作失败。
 
+
+## 证书链查看
+
+App 内有“查看证书链”按钮，会生成新的 TEE/StrongBox attestation key，并显示：
+
+- 证书链长度
+- Android Key Attestation 解析摘要
+- 每张证书的 Subject / Issuer / Serial / 有效期 / 签名算法 / 公钥算法
+- SHA-256 fingerprint
+- Leaf 证书是否包含 Android Key Attestation OID
+- 完整 PEM 格式证书链，方便复制到服务端或 `openssl` 调试
+
+注意：按钮里使用的是本机 demo challenge。生产环境必须使用服务端随机 nonce/challenge，并在服务端验证证书链和签名。
+
 ## 构建
 
 GitHub Actions 会自动编译 Debug APK：
