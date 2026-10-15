@@ -73,7 +73,7 @@ Play Integrity、厂商、运营商、FIDO2 等仍需各自的 SDK、后台配�
 - Keystore 导入结果、KeyInfo origin、实际安全级别。
 - 从 Keystore 读回的证书链一致性检查、使用导入私钥签名并以证书公钥验签的结果。
 
-默认 Keystore 不保证落在 TEE；界面报告 `KeyInfo` 的实际值。API 31+ 可区分 Software / TEE / StrongBox；更早版本报告 `insideSecureHardware`，不能据此区分 TEE 和 StrongBox。StrongBox 导入需要 API 28+，也取决于设备、算法和系统实现；失败时不会自动降级或重试到其他目标，已生成的材料仍会显示。
+默认 Keystore 不保证落在 TEE；界面报告 `KeyInfo` 的实际值。API 31+ 可区分 Software / TEE / StrongBox；更早版本报告 `insideSecureHardware`，不能据此区分 TEE 和 StrongBox。本项目使用的 StrongBox 导入公开 API 需要 Android 12 / API 31+（硬件内新生成 StrongBox 密钥的 API 则从 28 开始），也取决于设备、算法和系统实现；失败时不会自动降级或重试到其他目标，已生成的材料仍会显示。
 
 **这里的导入是临时调试验证**：完成检查后删除临时 Keystore 条目，不作为持久化密钥管理器。清理失败会显示 alias 和错误。
 

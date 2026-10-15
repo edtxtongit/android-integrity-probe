@@ -24,14 +24,14 @@ object DebugKeyImporter {
         val detail = StringBuilder()
         detail.appendLine("请求目标: ${if (strongBox) "StrongBox" else "Android Keystore（检查实际存储级别）"}")
         try {
-            require(!strongBox || Build.VERSION.SDK_INT >= 28) { "StrongBox 导入需要 Android 9 / API 28+" }
+            require(!strongBox || Build.VERSION.SDK_INT >= 31) { "StrongBox 导入的公开 API 需要 Android 12 / API 31+" }
             val protection = KeyProtection.Builder(KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 .setUserAuthenticationRequired(false)
             if (material.keyPair.private.algorithm == "RSA") {
                 protection.setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
             }
-            if (strongBox && Build.VERSION.SDK_INT >= 28) protection.setIsStrongBoxBacked(true)
+            if (strongBox && Build.VERSION.SDK_INT >= 31) protection.setIsStrongBoxBacked(true)
             store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
             store.setEntry(alias, KeyStore.PrivateKeyEntry(material.keyPair.private, material.chain), protection.build())
             imported = true
