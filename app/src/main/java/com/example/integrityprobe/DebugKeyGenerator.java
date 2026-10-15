@@ -57,8 +57,8 @@ public final class DebugKeyGenerator {
                 signatureAlgorithm, notBefore, notAfter);
         X509Certificate leaf = certificate(rootName, subject, rootKey, leafKey, false,
                 signatureAlgorithm, notBefore, notAfter);
-        root.verify(root.getPublicKey(), provider);
-        leaf.verify(root.getPublicKey(), provider);
+        root.verify(root.getPublicKey());
+        leaf.verify(root.getPublicKey());
         byte[] challenge = new byte[32];
         random.nextBytes(challenge);
         Signature signer = Signature.getInstance(signatureAlgorithm, provider);
