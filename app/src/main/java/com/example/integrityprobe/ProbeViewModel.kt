@@ -70,11 +70,11 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
     internal fun runVendor(action: VendorAction, form: VendorForm) {
         if (mutableState.value.busy != null) return
         mutableState.update { it.copy(vendorResult = null) }
-        work("华为接口：${action.title}…") {
+        work("荣耀接口：${action.title}…") {
             val environment = "设备: ${Build.MANUFACTURER} / ${Build.MODEL}\n" +
                 "Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}\n" +
-                "Build: ${Build.DISPLAY}\nApp: ${getApplication<Application>().packageName} / targetSdk ${getApplication<Application>().applicationInfo.targetSdkVersion}"
-            val result = VendorSigningRunner(HuaweiKeyBackend(), environment).run(action, form)
+                "Build: ${Build.DISPLAY}\nProbe version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\nApp: ${getApplication<Application>().packageName} / targetSdk ${getApplication<Application>().applicationInfo.targetSdkVersion}"
+            val result = VendorSigningRunner(HonorKeyBackend(), environment).run(action, form)
             mutableState.update { it.copy(vendorResult = result) }
         }
     }

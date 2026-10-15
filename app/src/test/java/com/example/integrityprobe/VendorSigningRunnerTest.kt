@@ -99,7 +99,7 @@ class VendorSigningRunnerTest {
         assertFalse(result.success)
         assertFalse(backend.opened)
         assertEquals(0, backend.generated)
-        assertTrue(result.log.contains("[失败] 加载并注册华为 Provider"))
+        assertTrue(result.log.contains("[失败] 加载并注册荣耀 Provider"))
         assertTrue(result.log.contains("ClassNotFoundException"))
         assertTrue(result.log.contains("未切换 AndroidKeyStore"))
     }

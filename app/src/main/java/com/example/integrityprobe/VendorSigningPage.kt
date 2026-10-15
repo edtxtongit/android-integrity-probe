@@ -3,9 +3,6 @@ package com.example.integrityprobe
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -32,8 +29,8 @@ internal fun VendorSigningPage(
     val plainKeyboard = KeyboardOptions(capitalization = KeyboardCapitalization.None,
         autoCorrectEnabled = false, keyboardType = KeyboardType.Text)
 
-    PageHeading("华为接口尝试", "荣耀 400 / Android 15 · 在普通 App 内验证，不预设设备支持。")
-    Notice("私钥留在 Keystore，直接调用签名", "仅尝试 HwUniversalKeyStoreProvider / HwKeystore。失败不会切换到 AndroidKeyStore，也不使用软件实验页的自签证书。")
+    PageHeading("荣耀接口尝试", "国行荣耀 400 / Android 15 · 在普通 App 内验证，不预设设备支持。")
+    Notice("私钥留在 Keystore，直接调用签名", "仅尝试 com.hihonor.android.security.keystore.HwUniversalKeyStoreProvider / HwKeystore。失败不会切换到 AndroidKeyStore，也不使用软件实验页的自签证书。")
     OutlinedButton(onClick = { onRun(VendorAction.DETECT, form) }, enabled = !running,
         modifier = Modifier.fillMaxWidth()) { Text("仅探测 Provider 与接口") }
 
@@ -67,7 +64,7 @@ internal fun VendorSigningPage(
             Button(onClick = { onRun(VendorAction.SIGN, form) },
                 enabled = !running && aliasValid && challengeBytes != null && contentBytes != null,
                 modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
+                Icon(ProbeIcons.Play, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("创建 / 复用密钥并签名")
             }
@@ -80,7 +77,7 @@ internal fun VendorSigningPage(
         }
     }
     if (result == null) {
-        EmptyPanel(Icons.Outlined.VpnKey, "先探测接口，或直接尝试签名", "结果包含分步诊断、设备返回的证书链、Base64 / Hex 签名及本地验签结果。所有操作在本 App 自己的访问范围内进行。")
+        EmptyPanel(ProbeIcons.Key, "先探测接口，或直接尝试签名", "结果包含分步诊断、设备返回的证书链、Base64 / Hex 签名及本地验签结果。所有操作在本 App 自己的访问范围内进行。")
     } else {
         val title = if (!result.success) "${result.action.title}失败，可复制诊断报告"
             else when (result.action) {

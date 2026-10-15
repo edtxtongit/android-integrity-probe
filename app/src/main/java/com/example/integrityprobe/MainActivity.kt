@@ -17,8 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,10 +75,10 @@ internal fun ProbeTheme(content: @Composable () -> Unit) {
 
 private data class Page(val name: String, val icon: ImageVector)
 private val pages = listOf(
-    Page("设备检测", Icons.Outlined.VerifiedUser),
-    Page("接口签名", Icons.Outlined.VpnKey),
-    Page("硬件证书", Icons.Outlined.Description),
-    Page("软件实验", Icons.Outlined.Science)
+    Page("设备检测", ProbeIcons.Shield),
+    Page("接口签名", ProbeIcons.Key),
+    Page("硬件证书", ProbeIcons.Document),
+    Page("软件实验", ProbeIcons.Flask)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,7 +110,7 @@ private fun ProbeApp(state: ProbeUiState, model: ProbeViewModel) {
                     }
                 },
                 navigationIcon = {
-                    Icon(Icons.Outlined.Security, contentDescription = null,
+                    Icon(ProbeIcons.Shield, contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(16.dp))
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -158,7 +156,7 @@ private fun ProbeApp(state: ProbeUiState, model: ProbeViewModel) {
     pendingPrivateCopy?.let { (label, text) ->
         AlertDialog(
             onDismissRequest = { pendingPrivateCopy = null },
-            icon = { Icon(Icons.Outlined.Key, null) },
+            icon = { Icon(ProbeIcons.Key, null) },
             title = { Text("复制内容包含私钥") },
             text = { Text("私钥将以明文放入系统剪贴板，可能被其他应用或剪贴板同步功能读取。仅使用测试密钥，调试后请清理剪贴板。") },
             confirmButton = {
@@ -189,7 +187,7 @@ private fun ProbePage(state: ProbeUiState, run: () -> Unit, copy: (String, Strin
                 }
             }
             Button(onClick = run, enabled = state.busy == null, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp))
+                Icon(ProbeIcons.Play, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(if (state.probe == null) "开始检测 · 12 项能力" else "重新检测")
             }
@@ -198,7 +196,7 @@ private fun ProbePage(state: ProbeUiState, run: () -> Unit, copy: (String, Strin
     Notice("信任边界", "本机检测仅供调试。生产环境必须使用服务端随机 challenge，并由服务端验签、验证证书链。")
     val report = state.probe
     if (report == null) {
-        EmptyPanel(Icons.Outlined.FactCheck, "准备好开始检测", "包含 StrongBox、TEE、启动状态、Play Integrity 与 mTLS 等 12 项能力。")
+        EmptyPanel(ProbeIcons.Checklist, "准备好开始检测", "包含 StrongBox、TEE、启动状态、Play Integrity 与 mTLS 等 12 项能力。")
     } else {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("PASS", "PARTIAL", "FAIL").forEach { status ->
@@ -280,7 +278,7 @@ private fun DebugPage(state: ProbeUiState, model: ProbeViewModel, copy: (String,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick = { model.generate(algorithm, commonName, days ?: 30, strongBox) },
                 enabled = enabled && validName && validDays, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp))
+                Icon(ProbeIcons.Refresh, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(if (state.debug == null) "随机生成并导入" else "重新生成并导入")
             }
@@ -288,7 +286,7 @@ private fun DebugPage(state: ProbeUiState, model: ProbeViewModel, copy: (String,
     }
     val output = state.debug
     if (output == null) {
-        EmptyPanel(Icons.Outlined.VpnKey, "调试材料将在此显示", "包含 PKCS#8 私钥、公钥、叶证书及本地 CA 证书链，以及 Keystore 导入和验签结果。")
+        EmptyPanel(ProbeIcons.Key, "调试材料将在此显示", "包含 PKCS#8 私钥、公钥、叶证书及本地 CA 证书链，以及 Keystore 导入和验签结果。")
     } else {
         Notice(if (!output.imported.success) "导入或验证失败，生成材料已保留"
             else if (output.imported.hardwareBacked) "已导入安全硬件并通过本地验签"
@@ -313,12 +311,12 @@ private fun CertificatePage(state: ProbeUiState, run: () -> Unit, copy: (String,
     PageHeading("硬件证明证书", "与软件生成、导入的调试密钥相互独立。")
     Notice("在 Keystore 内重新生成密钥", "分别请求 TEE / StrongBox Attestation。此路径的私钥无法显示或导出；证书由设备返回，仍需服务端验证其信任链、challenge 与安全级别。")
     Button(onClick = run, enabled = state.busy == null, modifier = Modifier.fillMaxWidth()) {
-        Icon(Icons.Outlined.Description, null, Modifier.size(18.dp))
+        Icon(ProbeIcons.Document, null, Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         Text(if (state.certificates == null) "生成并查看硬件证书链" else "重新获取硬件证书链")
     }
     if (state.certificates == null) {
-        EmptyPanel(Icons.Outlined.Description, "查看真实设备的证明材料", "展示证明字段、证书指纹与完整 PEM。系统不支持、配额限制或生成失败时会显示具体原因。")
+        EmptyPanel(ProbeIcons.Document, "查看真实设备的证明材料", "展示证明字段、证书指纹与完整 PEM。系统不支持、配额限制或生成失败时会显示具体原因。")
     } else {
         OutputCard("硬件证书链报告", "TEE / STRONGBOX · 摘要与 PEM", state.certificates, copy = copy)
     }
@@ -337,7 +335,7 @@ internal fun Notice(title: String, text: String, warning: Boolean = false) {
     Surface(shape = RoundedCornerShape(18.dp), color = if (warning) MaterialTheme.colorScheme.tertiaryContainer
         else MaterialTheme.colorScheme.secondaryContainer) {
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(if (warning) Icons.Outlined.WarningAmber else Icons.Outlined.Info, null, Modifier.size(20.dp))
+            Icon(if (warning) ProbeIcons.Warning else ProbeIcons.Info, null, Modifier.size(20.dp))
             SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -394,7 +392,7 @@ internal fun OutputCard(title: String, subtitle: String, text: String, sensitive
 @Composable
 internal fun CopyButton(label: String, onClick: () -> Unit) {
     TextButton(onClick = onClick) {
-        Icon(Icons.Outlined.ContentCopy, null, Modifier.size(16.dp))
+        Icon(ProbeIcons.Copy, null, Modifier.size(16.dp))
         Spacer(Modifier.width(6.dp))
         Text(label)
     }

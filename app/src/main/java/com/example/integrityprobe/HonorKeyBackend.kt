@@ -7,14 +7,23 @@ import java.lang.reflect.InvocationTargetException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
+import java.security.Provider
 import java.security.Security
 import java.security.Signature
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 
 /** Experimental vendor path, not a claim of official Honor 400 compatibility. */
-internal class HuaweiKeyBackend : VendorKeyBackend {
+internal class HonorKeyBackend : VendorKeyBackend {
     private lateinit var store: KeyStore
+    private lateinit var selectedProvider: Provider
+    private val trace = StringBuilder()
+
+    override fun diagnostics(): String = trace.toString()
+
+    private fun record(operation: String, provider: Provider) {
+        trace.appendLine("$operation → ${provider.name} [${provider.javaClass.name}]")
+    }
 
     override fun providers(): String = Security.getProviders().joinToString("\n") { provider ->
         val services = provider.services.filter {
@@ -25,11 +34,11 @@ internal class HuaweiKeyBackend : VendorKeyBackend {
     }
 
     override fun install(): String {
-        val alreadyInstalled = Security.getProvider(PROVIDER) != null
+        val alreadyInstalled = Security.getProviders().any { it.javaClass.name == VendorProviderSelection.CLASS_NAME }
         if (!alreadyInstalled) {
             // Do not bypass hidden API restrictions or load a replacement provider from elsewhere.
             try {
-                Class.forName(PROVIDER_CLASS).getMethod("install").invoke(null)
+                Class.forName(VendorProviderSelection.CLASS_NAME).getMethod("install").invoke(null)
             } catch (e: InvocationTargetException) {
                 val cause = e.targetException
                 if (cause is Exception) throw cause
@@ -37,16 +46,22 @@ internal class HuaweiKeyBackend : VendorKeyBackend {
                 throw e
             }
         }
-        val provider = checkNotNull(Security.getProvider(PROVIDER)) { "install 返回，但未注册 $PROVIDER" }
-        check(provider.getService("KeyStore", STORE) != null) { "Provider 未提供 KeyStore.$STORE" }
+        val provider = VendorProviderSelection.requireRegistered(Security.getProviders())
+        selectedProvider = provider
+        record("注册后的 Provider", provider)
+        check(provider.getService("KeyStore", VendorProviderSelection.STORE_TYPE) != null) { "Provider 未提供 KeyStore.${VendorProviderSelection.STORE_TYPE}" }
         check(provider.getService("KeyPairGenerator", "EC") != null) { "Provider 未提供 EC 生成器" }
         check(provider.getService("Signature", SigningText.ALGORITHM) != null) { "Provider 未提供 ${SigningText.ALGORITHM}" }
         return "${if (alreadyInstalled) "已注册，无需重复安装" else "反射 install 成功"}\n实现: ${provider.javaClass.name}\n${provider.info}"
     }
 
     override fun open() {
-        store = KeyStore.getInstance(STORE, PROVIDER).apply { load(null) }
-        check(store.provider.name == PROVIDER) { "KeyStore Provider 不匹配" }
+        // Match the target's type-only lookup, then explicitly reject an unexpected selection.
+        val candidate = KeyStore.getInstance(VendorProviderSelection.STORE_TYPE)
+        record("KeyStore.getInstance(HwKeystore)", candidate.provider)
+        check(candidate.provider === selectedProvider) { "HwKeystore 实际选择了不同 Provider，停止操作，不静默切换" }
+        candidate.load(null)
+        store = candidate
     }
 
     override fun contains(alias: String): Boolean = store.containsAlias(alias)
@@ -63,7 +78,8 @@ internal class HuaweiKeyBackend : VendorKeyBackend {
             .setUserAuthenticationRequired(false)
             .setAttestationChallenge(challenge)
             .build()
-        KeyPairGenerator.getInstance("EC", PROVIDER).apply {
+        KeyPairGenerator.getInstance("EC", selectedProvider).apply {
+            record("KeyPairGenerator.EC", provider)
             initialize(spec)
             generateKeyPair()
         }
@@ -77,7 +93,8 @@ internal class HuaweiKeyBackend : VendorKeyBackend {
     override fun sign(alias: String, bytes: ByteArray): ByteArray {
         val key = store.getKey(alias, null) as? PrivateKey ?: error("未获取到私钥操作句柄")
         check(key.algorithm.equals("EC", ignoreCase = true)) { "现有 alias 不是 EC 私钥，拒绝替换" }
-        return Signature.getInstance(SigningText.ALGORITHM, PROVIDER).run {
+        return Signature.getInstance(SigningText.ALGORITHM, selectedProvider).run {
+            record("Signature.${SigningText.ALGORITHM}", provider)
             initSign(key)
             update(bytes)
             sign()
@@ -86,9 +103,4 @@ internal class HuaweiKeyBackend : VendorKeyBackend {
 
     override fun delete(alias: String) = store.deleteEntry(alias)
 
-    companion object {
-        private const val PROVIDER = "HwUniversalKeyStoreProvider"
-        private const val STORE = "HwKeystore"
-        private const val PROVIDER_CLASS = "com.huawei.security.keystore.HwUniversalKeyStoreProvider"
-    }
 }

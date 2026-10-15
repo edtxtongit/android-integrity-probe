@@ -10,7 +10,6 @@ import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.util.encoders.Base64;
 
@@ -18,7 +17,6 @@ import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
-import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.cert.X509Certificate;
@@ -28,8 +26,7 @@ import java.util.Locale;
 
 /** Exportable development keys. Never represents Android hardware attestation. */
 public final class DebugKeyGenerator {
-    // Pass the provider instance explicitly; do not replace Android's system BC provider.
-    private final Provider provider = new BouncyCastleProvider();
+    // Use platform JCA crypto; BC is only needed for directly referenced ASN.1/certificate builders.
     private final SecureRandom random = new SecureRandom();
 
     public Material generate(String algorithm, String commonName, int validityDays) throws Exception {
@@ -61,7 +58,7 @@ public final class DebugKeyGenerator {
         leaf.verify(root.getPublicKey());
         byte[] challenge = new byte[32];
         random.nextBytes(challenge);
-        Signature signer = Signature.getInstance(signatureAlgorithm, provider);
+        Signature signer = Signature.getInstance(signatureAlgorithm);
         signer.initSign(leafKey.getPrivate(), random);
         signer.update(challenge);
         byte[] signature = signer.sign();
@@ -80,10 +77,14 @@ public final class DebugKeyGenerator {
     }
 
     private KeyPair generatePair(String algorithm) throws Exception {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance(algorithm, provider);
+        KeyPairGenerator generator = KeyPairGenerator.getInstance(algorithm);
         if (algorithm.equals("EC")) generator.initialize(new ECGenParameterSpec("secp256r1"), random);
         else generator.initialize(2048, random);
-        return generator.generateKeyPair();
+        KeyPair pair = generator.generateKeyPair();
+        if (pair.getPrivate().getEncoded() == null || !"PKCS#8".equals(pair.getPrivate().getFormat())) {
+            throw new IllegalStateException("软件实验生成器未返回可导出的 PKCS#8 私钥");
+        }
+        return pair;
     }
 
     private X509Certificate certificate(X500Name issuer, X500Name subject, KeyPair issuerKey,
@@ -101,8 +102,8 @@ public final class DebugKeyGenerator {
                 extensions.createSubjectKeyIdentifier(subjectKey.getPublic()));
         builder.addExtension(Extension.authorityKeyIdentifier, false,
                 extensions.createAuthorityKeyIdentifier(issuerKey.getPublic()));
-        return new JcaX509CertificateConverter().setProvider(provider).getCertificate(builder.build(
-                new JcaContentSignerBuilder(signatureAlgorithm).setProvider(provider)
+        return new JcaX509CertificateConverter().getCertificate(builder.build(
+                new JcaContentSignerBuilder(signatureAlgorithm)
                         .build(issuerKey.getPrivate())));
     }
 

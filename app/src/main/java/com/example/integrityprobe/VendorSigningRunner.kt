@@ -10,6 +10,7 @@ import java.util.Locale
 
 /** Backend abstraction allows orchestration tests without a phone or Android runtime. */
 internal interface VendorKeyBackend {
+    fun diagnostics(): String = ""
     fun providers(): String
     fun install(): String
     fun open()
@@ -47,7 +48,7 @@ internal data class VendorSigningResult(
     val chainJson: String? = null
 ) {
     fun report(): String = buildString {
-        appendLine("华为接口尝试 · ${action.title} · ${if (success) "PASS" else "FAIL"}")
+        appendLine("荣耀接口尝试 · ${action.title} · ${if (success) "PASS" else "FAIL"}")
         appendLine(log)
         if (input != null) {
             appendLine("\n--- 签名原文开始（UTF-8，保留空白）---")
@@ -98,7 +99,7 @@ internal class VendorSigningRunner(
         log.appendLine(environment)
         log.appendLine("时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date())}")
         log.appendLine("操作: ${action.title}\nalias: ${form.alias}")
-        log.appendLine("Provider: HwUniversalKeyStoreProvider\nKeyStore: HwKeystore")
+        log.appendLine("Provider FQCN: ${VendorProviderSelection.CLASS_NAME}\nKeyStore: ${VendorProviderSelection.STORE_TYPE}")
         log.appendLine("仅操作本 App 可访问的条目；不代表目标 App 的同名密钥。")
         try {
             if (action != VendorAction.DETECT) stage("校验输入") {
@@ -111,7 +112,7 @@ internal class VendorSigningRunner(
                 }
             }
             stage("列出当前进程的 Provider") { log.appendLine(backend.providers()) }
-            stage("加载并注册华为 Provider") { log.appendLine(backend.install()) }
+            stage("加载并注册荣耀 Provider") { log.appendLine(backend.install()) }
             stage("打开 HwKeystore") { backend.open() }
             when (action) {
                 VendorAction.DETECT -> log.appendLine("接口探测完成；未生成密钥，未验证 Attestation 或签名能力。")
@@ -178,6 +179,7 @@ internal class VendorSigningRunner(
             // Missing/incompatible vendor framework dependencies are expected probe failures.
             failure(e)
         }
+        backend.diagnostics().takeIf { it.isNotEmpty() }?.let { log.appendLine("\n实际 Provider 路径：\n$it") }
         return VendorSigningResult(action, form.alias, success, log.toString(), input, inputInfo,
             signatureBase64, signatureHex, publicKeyPem, certificates, chainPem, chainJson)
     }

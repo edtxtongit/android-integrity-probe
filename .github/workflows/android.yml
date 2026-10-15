@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build trial APKs
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -34,11 +34,11 @@ jobs:
         with:
           gradle-version: 8.9
 
-      - name: Unit tests, lint and debug APK
+      - name: Unit tests, lint and debug/optimized APKs
         shell: bash
         run: |
           set -o pipefail
-          if gradle testDebugUnitTest lintDebug assembleDebug --no-daemon --console=plain 2>&1 | tee "$RUNNER_TEMP/gradle-build.log"; then
+          if gradle testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug assembleRelease --no-daemon --console=plain 2>&1 | tee "$RUNNER_TEMP/gradle-build.log"; then
             exit 0
           else
             # Surface compiler/test failures in the Checks API as well as downloadable logs.
@@ -49,8 +49,7 @@ jobs:
           text = Path(os.environ['RUNNER_TEMP'], 'gradle-build.log').read_text(errors='replace')[-50000:]
           text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print('::error title=Gradle build failed::' + text)
-          report = Path('app/build/reports/lint-results-debug.xml')
-          if report.exists():
+          for report in Path('app/build/reports').glob('lint-results-*.xml'):
               for issue in ET.parse(report).getroot().findall('issue'):
                   if issue.get('severity') in ('Error', 'Fatal'):
                       location = issue.find('location')
@@ -60,6 +59,31 @@ jobs:
             exit 1
           fi
 
+      - name: Compare APK sizes and verify signatures
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify app/build/outputs/apk/release/app-release.apk
+          python3 - <<'PY'
+          import json, os, zipfile
+          from pathlib import Path
+          sizes = {}
+          lines = ['## APK size comparison', '', '| Build | APK size | Compressed DEX |', '| --- | ---: | ---: |']
+          for variant in ('debug', 'release'):
+              apk = Path(f'app/build/outputs/apk/{variant}/app-{variant}.apk')
+              with zipfile.ZipFile(apk) as z:
+                  dex = sum(i.compress_size for i in z.infolist() if i.filename.endswith('.dex'))
+              sizes[variant] = {'apk_bytes': apk.stat().st_size, 'compressed_dex_bytes': dex}
+              lines.append(f'| {variant} | {apk.stat().st_size / 1048576:.2f} MiB | {dex / 1048576:.2f} MiB |')
+          reduction = 100 * (1 - sizes['release']['apk_bytes'] / sizes['debug']['apk_bytes'])
+          lines += ['', f'Optimized APK is {reduction:.1f}% smaller than this build’s debug APK.',
+                    '', 'Trial only: release is R8/resource-shrunk, not debuggable, and signed with the runner debug key.']
+          report = Path('app/build/reports/apk-size.json')
+          report.parent.mkdir(parents=True, exist_ok=True)
+          report.write_text(json.dumps(sizes, indent=2))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(lines) + '\n')
+          print(f"::notice title=APK size::debug={sizes['debug']['apk_bytes']} bytes; optimized={sizes['release']['apk_bytes']} bytes; reduction={reduction:.1f}%")
+          PY
+
       - name: Upload test and lint reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -67,12 +91,20 @@ jobs:
           name: android-test-reports
           path: |
             app/build/reports/
+            app/build/outputs/mapping/release/
             ${{ runner.temp }}/gradle-build.log
           if-no-files-found: ignore
 
-      - name: Upload APK artifact
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-integrity-probe-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload optimized trial APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-integrity-probe-trial-apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error

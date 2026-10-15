@@ -25,16 +25,18 @@
 
 Play Integrity、厂商、运营商、FIDO2 等仍需各自的 SDK、后台配置和服务端验证，本工具不会伪造这些服务的 verdict。mTLS 检查不等于已完成远端 TLS 握手。
 
-### 接口签名：华为 Provider 尝试版（默认页面）
+### 接口签名：荣耀 Provider 尝试版（默认页面）
 
-针对荣耀 400 / Android 15 的**实验性兼容探测**，不宣称该机型一定支持华为旧接口。不需要读取目标 App 的私钥，也不尝试访问其他 App 的命名空间。
+针对国行荣耀 400 / Android 15 的**实验性兼容探测**。Provider FQCN 依据用户提供的 HnMMS APK 分析修正，普通 App 的完整调用能力仍需实测。不需要读取目标 App 的私钥，也不尝试访问其他 App 的命名空间。
 
 固定调用路径：
 
 ```text
 列出 Provider
-→ 如未注册，反射 com.huawei.security.keystore.HwUniversalKeyStoreProvider.install()
-→ KeyStore.getInstance("HwKeystore", "HwUniversalKeyStoreProvider")
+→ 如未注册，反射 com.hihonor.android.security.keystore.HwUniversalKeyStoreProvider.install()
+→ 按完整实现类名找到注册后的 Provider 实例（不猜测 JCA 名称）
+→ KeyStore.getInstance("HwKeystore")，检查实际选中的是同一个 Provider
+→ 密钥生成和签名显式使用该 Provider 实例
 → 指定 alias 不存在时生成 EC P-256 密钥并请求证明，存在则复用
 → 获取同一 alias 的证书链和私钥操作句柄
 → SHA256withECDSA 对用户输入的 UTF-8 原文字节签名
@@ -52,7 +54,7 @@ Play Integrity、厂商、运营商、FIDO2 等仍需各自的 SDK、后台配�
 - **复制**：输入原文、本次操作原文快照、字节详情、Base64 / Hex 签名、各证书与完整报告均有复制入口，也可选中文本。报告可能含设备/应用标识与请求内容，分享前请检查。
 - 表单与结果仅在 ViewModel 会话内保留，旋转和切页不丢失；不保存请求文本到文件或 SavedState。Keystore 密钥则独立持久保留。
 
-实现只反射 `install()`，随后使用标准 `KeyGenParameterSpec`。此兼容路径依据公开的 P40 / HarmonyOS 2.0 框架实现；**尚未在荣耀 400 上确认**。不绕过隐藏 API，不猜测替换成其他厂商类名，不导出私钥。该路径没有请求 StrongBox，也不凭接口名称声称密钥一定在安全硬件里。
+实现只反射 `install()`，随后使用标准 `KeyGenParameterSpec`。参数转换的参考是公开的 P40 / HarmonyOS 2.0 实现；荣耀版是否接受这些参数仍需实测。不绕过隐藏 API，不猜测替换成其他厂商类名，不导出私钥。该路径没有请求 StrongBox，也不凭接口名称声称密钥一定在安全硬件里。
 
 标准 Android Attestation OID 的 challenge 会尽可能解析；未知厂商 OID 不套用 Android ASN.1 schema。链尾只标为返回链尾，不自动成为可信根。本地解析与验签不等于服务端信任链、撤销状态或应用身份检查通过。不会发送 HTTP 请求。
 
@@ -109,10 +111,17 @@ Play Integrity、厂商、运营商、FIDO2 等仍需各自的 SDK、后台配�
 要求 JDK 17、Gradle 8.9、Android SDK Platform 35 / Build Tools 35.0.0；最低支持 Android 6 / API 23。本仓库未包含 Gradle Wrapper，请使用本地 Gradle 或 GitHub Actions：
 
 ```bash
-gradle testDebugUnitTest lintDebug assembleDebug --no-daemon
+gradle testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug assembleRelease --no-daemon
 ```
 
-APK：`app/build/outputs/apk/debug/app-debug.apk`。
+APK：
+
+- **推荐测试包**：`app/build/outputs/apk/release/app-release.apk`。启用 R8 代码优化/移除无用代码和资源压缩，非 debuggable；仍使用开发测试签名，不是生产发布版。Actions artifact：`android-integrity-probe-trial-apk`。
+- **未压缩对照包**：`app/build/outputs/apk/debug/app-debug.apk`。Actions artifact：`android-integrity-probe-debug-apk`。
+
+Actions 同时运行两种构建的单元测试和 Lint、验证优化包签名，并在构建摘要记录 APK 与 DEX 实际体积。R8 mapping 随测试报告上传，不靠禁用检查或全库 keep 规则来构建。
+
+注意：GitHub Runner 的临时 debug 签名在不同构建之间可能不同。若覆盖安装提示签名不一致，需要先卸载旧测试版再安装（会清除本 App 的数据和 Keystore 密钥，请先复制所需报告）。不通过关闭包签名验证解决此问题。
 
 单元测试覆盖 EC/RSA 私钥和公钥 PEM 回读、证书链签名、密钥与叶证书匹配、随机性及输入校验；接口签名另有字节编码、创建/复用、无降级、失败保留证书、错误签名抑制及删除范围等测试。连接设备或模拟器后运行：
 
@@ -149,4 +158,4 @@ openssl crl2pkcs7 -nocrl -certfile chain.pem | openssl pkcs7 -print_certs -text 
 openssl verify -CAfile root.pem leaf.pem
 ```
 
-依赖 AndroidX Compose / Lifecycle / Coroutines；Bouncy Castle 用于软件调试密钥与证书签发，通过显式 provider 实例调用，不替换 Android 系统加密 provider。
+依赖 AndroidX Compose / Lifecycle / Coroutines。界面仅打包 10 个本地矢量图标，不引入完整的 material-icons-extended 图标库。Bouncy Castle 只用于直接调用的证书/ASN.1 辅助代码；软件实验的密钥生成和签名使用平台 JCA，不实例化庞大的 BC 反射算法注册表，不替换 Android 系统 Provider。荣耀签名始终显式使用实际加载的荣耀 Provider。
