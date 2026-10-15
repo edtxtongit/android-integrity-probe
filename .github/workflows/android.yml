@@ -35,8 +35,16 @@ jobs:
         with:
           gradle-version: 8.9
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+      - name: Unit tests, lint and debug APK
+        run: gradle testDebugUnitTest lintDebug assembleDebug --no-daemon
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: app/build/reports/
+          if-no-files-found: ignore
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

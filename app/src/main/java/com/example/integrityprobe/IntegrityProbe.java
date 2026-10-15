@@ -1,21 +1,14 @@
 package com.example.integrityprobe;
 
-import android.app.Activity;
+import android.content.ContextWrapper;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.nfc.NfcAdapter;
 import android.os.Build;
-import android.os.Bundle;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyProperties;
 import android.telephony.TelephonyManager;
-import android.text.method.ScrollingMovementMethod;
-import android.view.View;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -34,61 +27,25 @@ import java.util.Locale;
 
 import javax.net.ssl.KeyManagerFactory;
 
-public class MainActivity extends Activity {
+public final class IntegrityProbe extends ContextWrapper {
     private static final String ANDROID_KEY_ATTESTATION_OID = "1.3.6.1.4.1.11129.2.1.17";
-    private static final byte[] DEMO_CHALLENGE = ("LOCAL_DEMO_CHALLENGE_" + System.currentTimeMillis()).getBytes(StandardCharsets.UTF_8);
+    private final byte[] demoChallenge = new byte[32];
+    private final List<String> temporaryAliases = new ArrayList<>();
 
-    private TextView output;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(14);
-        root.setPadding(pad, pad, pad, pad);
-
-        TextView title = new TextView(this);
-        title.setText("Android Integrity Probe");
-        title.setTextSize(22);
-        title.setPadding(0, 0, 0, dp(8));
-        root.addView(title);
-
-        TextView note = new TextView(this);
-        note.setText("本 App 只做本机能力探测。真正的“不可由 unidbg 伪造”必须使用服务端随机 nonce/challenge，并在服务端验签、验证证书链/签名链。");
-        note.setTextSize(14);
-        note.setPadding(0, 0, 0, dp(8));
-        root.addView(note);
-
-        Button run = new Button(this);
-        run.setText("开始检测");
-        root.addView(run);
-
-        Button viewCerts = new Button(this);
-        viewCerts.setText("查看证书链");
-        root.addView(viewCerts);
-
-        output = new TextView(this);
-        output.setTextSize(13);
-        output.setTextIsSelectable(true);
-        output.setMovementMethod(new ScrollingMovementMethod());
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(output);
-        root.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        setContentView(root);
-
-        run.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { runProbe(); }
-        });
-        viewCerts.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showCertificateChains(); }
-        });
-        runProbe();
+    public IntegrityProbe(Context context) {
+        super(context.getApplicationContext());
+        new java.security.SecureRandom().nextBytes(demoChallenge);
     }
 
-    private void runProbe() {
+    public ProbeReport runProbe() {
+        try {
+            return collectProbe();
+        } finally {
+            cleanup();
+        }
+    }
+
+    private ProbeReport collectProbe() {
         StringBuilder sb = new StringBuilder();
         addHeader(sb);
         List<Result> results = new ArrayList<>();
@@ -120,7 +77,7 @@ public class MainActivity extends Activity {
         sb.append("服务端必须做三件事：随机 nonce/challenge、验签、验证证书链/签名链。客户端本地显示结果仅供调试。\n");
         sb.append("点击“查看证书链”可生成并显示 TEE/StrongBox attestation 证书链摘要和 PEM，便于复制到服务端/openssl 调试。\n");
 
-        output.setText(sb.toString());
+        return new ProbeReport(results, sb.toString());
     }
 
     private void addHeader(StringBuilder sb) {
@@ -130,7 +87,7 @@ public class MainActivity extends Activity {
         sb.append("Manufacturer: ").append(Build.MANUFACTURER).append("\n");
         sb.append("StrongBox feature: ").append(hasFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)).append("\n");
         sb.append("AndroidKeyStore provider: tested below\n");
-        sb.append("Local demo challenge(base64): ").append(b64(DEMO_CHALLENGE)).append("\n");
+        sb.append("Local demo challenge(base64): ").append(b64(demoChallenge)).append("\n");
         sb.append("\n检测结果\n\n");
     }
 
@@ -142,9 +99,9 @@ public class MainActivity extends Activity {
         try {
             deleteAlias(alias);
             generateEcKey(alias, null, true);
-            byte[] sig = sign(alias, DEMO_CHALLENGE);
+            byte[] sig = sign(alias, demoChallenge);
             X509Certificate cert = firstCert(alias);
-            boolean ok = verify(cert, DEMO_CHALLENGE, sig);
+            boolean ok = verify(cert, demoChallenge, sig);
             boolean hw = isInsideSecureHardware(alias);
             String hwText = hardwareInfo(alias);
             if (ok && hw) return pass(name, "StrongBox 生成私钥并完成 ECDSA 签名/本地验签。签名长度=" + sig.length + "。" + hwText);
@@ -162,7 +119,7 @@ public class MainActivity extends Activity {
         String alias = "probe_strongbox_attest";
         try {
             deleteAlias(alias);
-            generateEcKey(alias, DEMO_CHALLENGE, true);
+            generateEcKey(alias, demoChallenge, true);
             Certificate[] chain = certChain(alias);
             AttestationInfo info = inspectAttestation(chain);
             if (info.attestationExtFound && info.challengeMatches && info.isStrongBoxSecurityLevel()) {
@@ -180,9 +137,9 @@ public class MainActivity extends Activity {
         try {
             deleteAlias(alias);
             generateEcKey(alias, null, false);
-            byte[] sig = sign(alias, DEMO_CHALLENGE);
+            byte[] sig = sign(alias, demoChallenge);
             X509Certificate cert = firstCert(alias);
-            boolean ok = verify(cert, DEMO_CHALLENGE, sig);
+            boolean ok = verify(cert, demoChallenge, sig);
             boolean hw = isInsideSecureHardware(alias);
             String hwText = hardwareInfo(alias);
             if (ok && hw) return pass(name, "AndroidKeyStore 生成硬件内不可导出私钥并完成 ECDSA 签名/本地验签。签名长度=" + sig.length + "。" + hwText);
@@ -199,7 +156,7 @@ public class MainActivity extends Activity {
         String alias = "probe_tee_attest";
         try {
             deleteAlias(alias);
-            generateEcKey(alias, DEMO_CHALLENGE, false);
+            generateEcKey(alias, demoChallenge, false);
             Certificate[] chain = certChain(alias);
             AttestationInfo info = inspectAttestation(chain);
             if (info.attestationExtFound && info.challengeMatches && info.isTrustedEnvironmentSecurityLevel()) {
@@ -220,7 +177,7 @@ public class MainActivity extends Activity {
         String alias = "probe_boot_fields";
         try {
             deleteAlias(alias);
-            generateEcKey(alias, DEMO_CHALLENGE, false);
+            generateEcKey(alias, demoChallenge, false);
             Certificate[] chain = certChain(alias);
             AttestationInfo info = inspectAttestation(chain);
             if (info.rootOfTrustFound && info.verifiedBootState != null && info.deviceLocked != null) {
@@ -332,18 +289,26 @@ public class MainActivity extends Activity {
     }
 
 
-    private void showCertificateChains() {
+    public String showCertificateChains() {
+        try {
+            return collectCertificateChains();
+        } finally {
+            cleanup();
+        }
+    }
+
+    private String collectCertificateChains() {
         StringBuilder sb = new StringBuilder();
         addHeader(sb);
         sb.append("证书链查看\n\n");
-        sb.append("说明：这里生成新的本地 demo attestation key，并用当前 App 进程内的 LOCAL_DEMO_CHALLENGE 作为 challenge。\n");
+        sb.append("说明：这里生成新的本地 demo attestation key，并用本次操作的 SecureRandom 随机 challenge 作为 challenge。\n");
         sb.append("生产环境请把 PEM 证书链、公钥签名和服务端 nonce 一起发到服务端，由服务端验证 Google/Android attestation 根链、challenge、签名和 RootOfTrust 字段。\n\n");
 
         appendAttestationChain(sb, "TEE / KeyMint / Keymaster Attestation", "probe_view_tee_attest", false);
         sb.append("\n");
         appendAttestationChain(sb, "StrongBox Attestation", "probe_view_strongbox_attest", true);
 
-        output.setText(sb.toString());
+        return sb.toString();
     }
 
     private void appendAttestationChain(StringBuilder sb, String title, String alias, boolean strongBox) {
@@ -351,7 +316,7 @@ public class MainActivity extends Activity {
         sb.append(title).append("\n");
         sb.append("==============================\n");
         sb.append("alias: ").append(alias).append("\n");
-        sb.append("challenge(base64): ").append(b64(DEMO_CHALLENGE)).append("\n");
+        sb.append("challenge(base64): ").append(b64(demoChallenge)).append("\n");
         if (Build.VERSION.SDK_INT < 24) {
             sb.append("状态: FAIL - Key Attestation 需要 Android 7/API 24+。\n");
             return;
@@ -368,10 +333,11 @@ public class MainActivity extends Activity {
         }
         try {
             deleteAlias(alias);
-            generateEcKey(alias, DEMO_CHALLENGE, strongBox);
+            generateEcKey(alias, demoChallenge, strongBox);
             Certificate[] chain = certChain(alias);
             AttestationInfo info = inspectAttestation(chain);
-            sb.append("状态: OK\n");
+            sb.append("状态: 已读取（未进行服务端信任链验证）\n");
+            sb.append("私钥: 硬件/Keystore 内生成，不可导出\n");
             sb.append("chainLength: ").append(chain.length).append("\n");
             sb.append("attestationInfo: ").append(info.summary()).append("\n\n");
             appendCertificateChainPemAndSummary(sb, chain);
@@ -432,6 +398,7 @@ public class MainActivity extends Activity {
     }
 
     private void generateEcKey(String alias, byte[] attestationChallenge, boolean strongBox) throws Exception {
+        temporaryAliases.add(alias);
         KeyPairGenerator kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore");
         KeyGenParameterSpec.Builder b = new KeyGenParameterSpec.Builder(alias,
                 KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
@@ -515,7 +482,7 @@ public class MainActivity extends Activity {
         info.keymasterVersion = safeInt(c.get(2));
         info.keymasterSecurityLevel = securityLevelName(safeInt(c.get(3)));
         byte[] challenge = c.get(4).valueBytes();
-        info.challengeMatches = Arrays.equals(DEMO_CHALLENGE, challenge);
+        info.challengeMatches = Arrays.equals(demoChallenge, challenge);
         parseAuthorizationList(c.get(6), "softwareEnforced", info);
         parseAuthorizationList(c.get(7), "teeEnforced", info);
     }
@@ -655,12 +622,24 @@ public class MainActivity extends Activity {
     private Result partial(String name, String detail) { return new Result(name, "PARTIAL", detail); }
     private Result fail(String name, String detail) { return new Result(name, "FAIL", detail); }
 
-    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
+    private void cleanup() {
+        for (String alias : temporaryAliases) deleteAlias(alias);
+        temporaryAliases.clear();
+    }
 
-    private static class Result {
-        final String name;
-        final String status;
-        final String detail;
+    public static final class ProbeReport {
+        public final List<Result> results;
+        public final String text;
+        ProbeReport(List<Result> results, String text) {
+            this.results = results;
+            this.text = text;
+        }
+    }
+
+    public static final class Result {
+        public final String name;
+        public final String status;
+        public final String detail;
         Result(String name, String status, String detail) { this.name = name; this.status = status; this.detail = detail; }
     }
 
